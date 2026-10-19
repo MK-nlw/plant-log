@@ -40,6 +40,7 @@ export default function PlantLog({ user, onLogout }) {
   const [taskDraft, setTaskDraft] = useState("");
   const [taskDue, setTaskDue] = useState("");
   const [viewer, setViewer] = useState(null);
+  const [photoDate, setPhotoDate] = useState(today()); // 写真の日付（既定＝今日、過去の写真も入れられる）
   const [guideOpen, setGuideOpen] = useState(false);
   const [ioOpen, setIoOpen] = useState(false);
   const [ioText, setIoText] = useState("");
@@ -126,9 +127,10 @@ export default function PlantLog({ user, onLogout }) {
       const blob = await shrink(file);
       const pid = uid();
       const path = await uploadPhoto(photoPath(user.id, id, pid), blob);
-      const list = [{ id: pid, date: today(), path }, ...(photos[id] || [])];
+      const date = photoDate || today();
+      const list = [{ id: pid, date, path }, ...(photos[id] || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
       const ok = await persist(undefined, { ...photos, [id]: list });
-      if (ok) say(`${nameOf(id)}の写真を保存`);
+      if (ok) say(`${nameOf(id)}の写真を保存（${fmtY(date)}）`);
     } catch (e) { console.error(e); say("写真を保存できませんでした"); }
     setBusy(false);
   };
@@ -367,12 +369,14 @@ export default function PlantLog({ user, onLogout }) {
                     )}
 
                     {/* 写真 */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "18px 0 6px" }}>
-                      <span style={{ fontSize: 13, color: C.mute }}>写真（{ph.length}）</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, margin: "18px 0 6px" }}>
+                      <span style={{ fontSize: 13, color: C.mute, whiteSpace: "nowrap" }}>写真（{ph.length}）</span>
+                      <span style={{ flex: 1 }} />
+                      <input type="date" value={photoDate} max={today()} onChange={(e) => setPhotoDate(e.target.value)} title="写真の日付（撮った日）" style={{ padding: "6px 6px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff", appearance: "none", WebkitAppearance: "none", minWidth: 0, width: 140 }} />
                       <button disabled={busy} onClick={() => fileRef.current && fileRef.current.click()} style={{ ...btn(C.ink, "#fff"), flex: "none", padding: "7px 12px", fontSize: 13, opacity: busy ? .5 : 1 }}>{busy ? "保存中…" : "写真を追加"}</button>
                       <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { addPhoto(p.id, e.target.files[0]); e.target.value = ""; }} />
                     </div>
-                    {ph.length === 0 ? <div style={{ fontSize: 13, color: C.mute }}>植え替え前後や数ヶ月ごとに撮っておくと成長が見比べられます</div> : (
+                    {ph.length === 0 ? <div style={{ fontSize: 13, color: C.mute }}>植え替え前後や数ヶ月ごとに撮っておくと成長が見比べられます。日付を変えれば過去に撮った写真も入れられます</div> : (
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
                         {ph.map((x) => (
                           <button key={x.id} onClick={() => setViewer({ plant: p.id, photo: x })} style={{ position: "relative", padding: 0, border: "none", background: "#E9EDE2", cursor: "pointer", aspectRatio: "1", borderRadius: 8, overflow: "hidden" }}>
