@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { PLANTS, SEASONS, EVENT_TYPES, PLACE } from "./plants";
-import { loadState, saveState, photoPath, uploadPhoto, removePhoto, photoUrl, dataUrlToBlob } from "./store";
+import { SEASONS, EVENT_TYPES, PLACE, CATEGORIES, SEED_PLANTS, intervalFor, cardStatus, newPlantId, emptyPlant } from "./plants";
+import { loadState, saveState, photoPath, uploadPhoto, removePhoto, photoUrl, dataUrlToBlob, loadPlants, upsertPlant, upsertPlants } from "./store";
+import CardEditor from "./CardEditor.jsx";
 
 const C = { bg: "#F4F6EF", ink: "#1E2A1C", mute: "#6E7A6B", line: "#D8DED0", ok: "#4E7A3A", soon: "#C9962E", late: "#B4513A", card: "#FFFFFF", panel: "#FAFBF7" };
 
@@ -28,6 +29,9 @@ const font = "system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-se
 
 export default function PlantLog({ user, onLogout }) {
   const [data, setData] = useState({});
+  const [plants, setPlants] = useState([]); // 鉢カード（plants テーブル）
+  const [editor, setEditor] = useState(null); // { plant, isNew }
+  const [showArchived, setShowArchived] = useState(false);
   const [photos, setPhotos] = useState({});
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState("");
@@ -59,9 +63,12 @@ export default function PlantLog({ user, onLogout }) {
   // ---- 読み込み ----
   const reload = useCallback(async () => {
     try {
-      const s = await loadState(user.id);
+      const [s, pl] = await Promise.all([loadState(user.id), loadPlants(user.id)]);
       stateRef.current = s;
-      setData(s.data); setPhotos(s.photos); setLoadErr("");
+      setData(s.data); setPhotos(s.photos);
+      // 鉢カードがまだ無ければ、旧コードの 14 鉢を初回投入
+      setPlants(pl.length ? pl : await upsertPlants(user.id, SEED_PLANTS));
+      setLoadErr("");
     } catch (e) {
       console.error(e); setLoadErr("記録を読み込めませんでした。通信状態を確認して再読み込みしてください");
     }
@@ -91,7 +98,18 @@ export default function PlantLog({ user, onLogout }) {
   const save = (nextData) => persist(nextData, undefined);
   const P = (id) => data[id] || {};
   const upd = (id, patch) => save({ ...data, [id]: { ...P(id), ...patch } });
-  const nameOf = (id) => PLANTS.find((x) => x.id === id)?.name || id;
+  const nameOf = (id) => plants.find((x) => x.id === id)?.name || id;
+
+  // ---- 鉢カード ----
+  const savePlant = async (card, msg) => {
+    try {
+      const saved = await upsertPlant(user.id, card);
+      setPlants((cur) => { const i = cur.findIndex((x) => x.id === saved.id); const next = i >= 0 ? cur.map((x) => (x.id === saved.id ? saved : x)) : [...cur, saved]; return next.sort((a, b) => a.sort_order - b.sort_order); });
+      setEditor(null); say(msg || (editor?.isNew ? `${saved.name}を追加しました` : `${saved.name}のカードを保存`));
+    } catch (e) { console.error(e); say("保存できませんでした。もう一度お試しください"); }
+  };
+  const openNewPlant = () => { const maxOrder = Math.max(0, ...plants.map((x) => x.sort_order || 0)); setEditor({ plant: { ...emptyPlant(newPlantId()), sort_order: maxOrder + 1000 }, isNew: true }); };
+  const archivePlant = async (plant) => { await savePlant({ ...plant, archived: !plant.archived }, plant.archived ? `${plant.name}を一覧に戻しました` : `${plant.name}を一覧から外しました`); setOpen(null); };
 
   // ---- 水やり ----
   const water = async (id, kind) => {
@@ -149,17 +167,28 @@ export default function PlantLog({ user, onLogout }) {
   const exportAll = () => {
     const ph = {};
     for (const id of Object.keys(photos)) ph[id] = (photos[id] || []).map((x) => ({ id: x.id, date: x.date, note: x.note, path: x.path, url: x.path ? photoUrl(x.path) : undefined }));
-    setIoText(JSON.stringify({ version: 2, exportedAt: today(), data, photos: ph }));
+    setIoText(JSON.stringify({ version: 2, exportedAt: today(), plants, data, photos: ph }));
   };
   // 旧アプリ（version 1、写真は data: URL）と新形式（version 2、写真は path）の両方を受け付ける
   const importAll = async (text) => {
     let obj;
-    try { obj = JSON.parse(text || ioText); if (!obj || !obj.data) throw new Error(); }
+    try { obj = JSON.parse(text || ioText); if (!obj || (!obj.data && !obj.plants)) throw new Error(); }
     catch (e) { say("読み込めませんでした。書き出した文字列をそのまま貼ってください"); return; }
     setBusy(true);
     try {
+      // 鉢カード（{plants:[...]} だけのファイルでも可。同じ id は上書き、無ければ追加）
+      if (Array.isArray(obj.plants) && obj.plants.length) {
+        const maxOrder = Math.max(0, ...plants.map((x) => x.sort_order || 0));
+        const cards = obj.plants.filter((c) => c && c.id && c.name).map((c, i) => {
+          const exists = plants.find((x) => x.id === c.id);
+          const cur = exists || emptyPlant(c.id);
+          return { ...cur, ...c, sort_order: c.sort_order ?? (exists ? cur.sort_order : maxOrder + (i + 1) * 1000) };
+        });
+        const saved = await upsertPlants(user.id, cards);
+        setPlants((curList) => { const m = new Map(curList.map((x) => [x.id, x])); for (const x of saved) m.set(x.id, x); return [...m.values()].sort((a, b) => a.sort_order - b.sort_order); });
+      }
       const nextData = { ...data };
-      for (const k of Object.keys(obj.data)) if (!k.startsWith("__")) nextData[k] = obj.data[k];
+      for (const k of Object.keys(obj.data || {})) if (!k.startsWith("__")) nextData[k] = obj.data[k];
       const nextPhotos = { ...photos };
       if (obj.photos) {
         const all = Object.entries(obj.photos).flatMap(([id, list]) => (list || []).map((x) => ({ id, x })));
@@ -181,7 +210,7 @@ export default function PlantLog({ user, onLogout }) {
           nextPhotos[id] = [...merged, ...cur].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
         }
       }
-      const ok = await persist(nextData, nextPhotos);
+      const ok = (!obj.data && !obj.photos) ? true : await persist(nextData, nextPhotos);
       if (ok) { setIoText(""); setIoOpen(false); say("読み込みました"); }
     } catch (e) { console.error(e); say("読み込み中にエラーが出ました。もう一度お試しください"); }
     setBusy(false);
@@ -195,18 +224,22 @@ export default function PlantLog({ user, onLogout }) {
 
   // ---- 状態計算 ----
   const status = (plant) => {
-    const logs = P(plant.id).logs || []; const iv = plant.interval(month);
-    if (!logs.length) return { days: null, iv, level: "none", ratio: 0 };
-    const days = daysBetween(logs[0].date, today()); const ratio = Math.min(days / iv.max, 1.15);
+    const logs = P(plant.id).logs || []; const iv = intervalFor(plant, month);
+    const days = logs.length ? daysBetween(logs[0].date, today()) : null;
+    if (!iv) return { days, iv: null, level: "none", ratio: 0 }; // 目安未設定：判定しない
+    if (days === null) return { days: null, iv, level: "none", ratio: 0 };
+    const ratio = Math.min(days / iv.max, 1.15);
     return { days, iv, ratio, level: days < iv.min ? "ok" : days <= iv.max ? "soon" : "late" };
   };
   const color = (lv) => lv === "late" ? C.late : lv === "soon" ? C.soon : lv === "ok" ? C.ok : C.mute;
-  const label = (lv, d) => lv === "none" ? "未記録" : lv === "late" ? `${d}日 · 遅れ気味` : lv === "soon" ? `${d}日 · そろそろ` : `${d}日 · まだ`;
+  const label = (lv, d) => lv === "none" ? (d === null ? "未記録" : `${d}日`) : lv === "late" ? `${d}日 · 遅れ気味` : lv === "soon" ? `${d}日 · そろそろ` : `${d}日 · まだ`;
 
-  const list = PLANTS.filter((p) => filter === "all" || p.place === filter).map((p) => ({ p, s: status(p) }));
+  const active = plants.filter((p) => !p.archived);
+  const archived = plants.filter((p) => p.archived);
+  const list = active.filter((p) => filter === "all" || p.place === filter).map((p) => ({ p, s: status(p) }));
   if (tab === "water") list.sort((a, b) => (b.s.ratio ?? 0) - (a.s.ratio ?? 0));
   const due = list.filter(({ s }) => s.level !== "ok" && s.level !== "none").length;
-  const allTasks = PLANTS.flatMap((p) => (P(p.id).tasks || []).map((t) => ({ ...t, plant: p }))).sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
+  const allTasks = active.flatMap((p) => (P(p.id).tasks || []).map((t) => ({ ...t, plant: p }))).sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
   const weekTasks = allTasks.filter((t) => t.due && daysBetween(today(), t.due) <= 7);
 
   if (!loaded) return <div style={{ background: C.bg, minHeight: "100vh", padding: 24, color: C.mute, fontFamily: font }}>読み込み中…</div>;
@@ -222,7 +255,10 @@ export default function PlantLog({ user, onLogout }) {
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "20px 16px 60px" }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0 }}>{tab === "water" ? "水やり" : "予定と記録"}</h1>
-          <span style={{ fontSize: 14, color: C.mute }}>{month}月{now.getDate()}日</span>
+          <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+            <span style={{ fontSize: 14, color: C.mute }}>{month}月{now.getDate()}日</span>
+            <button onClick={openNewPlant} style={{ padding: "5px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${C.ink}`, background: C.ink, color: "#fff" }}>＋ 鉢</button>
+          </div>
         </div>
         <p style={{ margin: "4px 0 14px", fontSize: 14, color: C.mute }}>
           {tab === "water" ? (due === 0 ? "今日やる鉢はありません" : `そろそろの鉢が${due}つ`) : (weekTasks.length === 0 ? "今週の予定はありません" : `今週の予定が${weekTasks.length}件`)}
@@ -257,7 +293,7 @@ export default function PlantLog({ user, onLogout }) {
                   <div style={{ fontWeight: 600, marginTop: 8 }}>窓台・机（観葉組）</div>
                   {g.B.map((t, i) => <div key={i}>・{t}</div>)}
                   <div style={{ fontWeight: 600, marginTop: 8 }}>鉢ごと</div>
-                  {PLANTS.filter((p) => g.plants[p.id]).map((p) => <div key={p.id}><span style={{ color: C.mute }}>{p.name}：</span>{g.plants[p.id]}</div>)}
+                  {active.filter((p) => (p.season_notes || {})[g.key]).map((p) => <div key={p.id}><span style={{ color: C.mute }}>{p.name}：</span>{p.season_notes[g.key]}</div>)}
                 </div>
               )}
             </div>
@@ -283,17 +319,21 @@ export default function PlantLog({ user, onLogout }) {
               <div key={p.id} style={{ borderTop: i ? `1px solid ${C.line}` : "none" }}>
                 <button onClick={() => { setOpen(isOpen ? null : p.id); setNoteDraft(""); setEvNote(""); }} style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "14px 14px 12px", cursor: "pointer", color: C.ink, display: "block" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                    <div><span style={{ fontSize: 17, fontWeight: 600 }}>{p.name}</span>{p.sub && <span style={{ fontSize: 12, color: C.mute, marginLeft: 6 }}>{p.sub}</span>}</div>
+                    <div><span style={{ fontSize: 17, fontWeight: 600 }}>{p.name}</span>{p.sub && <span style={{ fontSize: 12, color: C.mute, marginLeft: 6 }}>{p.sub}</span>}{cardStatus(p) === "provisional" && <span title="分類の既定値で仮運用中" style={{ fontSize: 11, marginLeft: 6, padding: "1px 6px", borderRadius: 6, background: "#FFF6E3", border: "1px solid #EBD9A8", color: "#8A6A1E" }}>仮</span>}{cardStatus(p) === "none" && <span style={{ fontSize: 11, marginLeft: 6, padding: "1px 6px", borderRadius: 6, background: "#EEF0EA", color: C.mute }}>目安未設定</span>}</div>
                     {tab === "water"
                       ? <span style={{ fontSize: 13, fontWeight: 600, color: color(s.level), whiteSpace: "nowrap" }}>{label(s.level, s.days)}</span>
                       : <span style={{ fontSize: 12, color: C.mute, whiteSpace: "nowrap" }}>{tasks.length ? `予定${tasks.length}` : ""}{ph.length ? ` 写真${ph.length}` : ""}</span>}
                   </div>
                   {tab === "water" ? (<>
+                    {s.iv ? (<>
                     <div style={{ position: "relative", height: 6, background: "#E9EDE2", borderRadius: 3, marginTop: 10 }}>
                       <div style={{ position: "absolute", left: `${(s.iv.min / (s.iv.max * 1.15)) * 100}%`, width: `${((s.iv.max - s.iv.min) / (s.iv.max * 1.15)) * 100}%`, top: 0, bottom: 0, background: "#D9E4CC", borderRadius: 3 }} />
                       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(s.ratio / 1.15, 1) * 100}%`, background: color(s.level), borderRadius: 3, transition: "width .3s" }} />
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mute, marginTop: 6 }}><span>{PLACE[p.place]}</span><span>目安 {s.iv.min}〜{s.iv.max}日</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mute, marginTop: 6 }}><span>{PLACE[p.place]}</span><span>目安 {s.iv.min}〜{s.iv.max}日{s.iv.provisional ? "（仮）" : ""}</span></div>
+                    </>) : (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mute, marginTop: 8 }}><span>{PLACE[p.place]}</span><span>カード編集で分類か目安を設定すると判定します</span></div>
+                    )}
                   </>) : (
                     <div style={{ fontSize: 12, color: C.mute, marginTop: 4 }}>{events[0] ? `最近：${fmtY(events[0].date)} ${events[0].type}` : "まだ記録がありません"}</div>
                   )}
@@ -301,16 +341,18 @@ export default function PlantLog({ user, onLogout }) {
 
                 {isOpen && tab === "water" && (
                   <div style={{ padding: "0 14px 16px", background: C.panel }}>
-                    <p style={{ margin: "10px 0 6px", fontSize: 14, lineHeight: 1.6 }}>{s.iv.note}</p>
-                    <p style={{ margin: "0 0 12px", fontSize: 12, color: C.mute }}>土：{p.soil}</p>
-                    <div style={{ fontSize: 13, background: "#EEF3E6", borderRadius: 8, padding: "7px 10px", marginBottom: 8, lineHeight: 1.6 }}>
-                      <div><span style={{ color: C.mute }}>たっぷり：</span>{p.water.full}（半分→1〜2分待つ→残り。底から出たら止める）</div>
-                      <div><span style={{ color: C.mute }}>少量：</span>{p.water.light}（表面が湿る程度）</div>
-                    </div>
+                    {s.iv?.note && <p style={{ margin: "10px 0 6px", fontSize: 14, lineHeight: 1.6 }}>{s.iv.note}</p>}
+                    {p.soil && <p style={{ margin: "0 0 12px", fontSize: 12, color: C.mute }}>土：{p.soil}</p>}
+                    {(p.water_full || p.water_light) && (
+                      <div style={{ fontSize: 13, background: "#EEF3E6", borderRadius: 8, padding: "7px 10px", marginBottom: 8, lineHeight: 1.6 }}>
+                        {p.water_full && <div><span style={{ color: C.mute }}>たっぷり：</span>{p.water_full}（半分→1〜2分待つ→残り。底から出たら止める）</div>}
+                        {p.water_light && <div><span style={{ color: C.mute }}>少量：</span>{p.water_light}（表面が湿る程度）</div>}
+                      </div>
+                    )}
                     <input value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="メモ（乾き具合・様子など、任意）" style={{ width: "100%", boxSizing: "border-box", padding: "9px 10px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff", marginBottom: 8 }} />
                     <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={() => water(p.id, "たっぷり")} style={btn(C.ok, "#fff")}>今日たっぷり {p.water.full}</button>
-                      <button onClick={() => water(p.id, "少量")} style={btn("#fff", C.ok, `1px solid ${C.ok}`)}>今日少量 {p.water.light}</button>
+                      <button onClick={() => water(p.id, "たっぷり")} style={btn(C.ok, "#fff")}>今日たっぷり{p.water_full ? ` ${p.water_full}` : ""}</button>
+                      <button onClick={() => water(p.id, "少量")} style={btn("#fff", C.ok, `1px solid ${C.ok}`)}>今日少量{p.water_light ? ` ${p.water_light}` : ""}</button>
                     </div>
                     {logs.length > 0 && (
                       <div style={{ marginTop: 14 }}>
@@ -324,6 +366,7 @@ export default function PlantLog({ user, onLogout }) {
                         ))}
                       </div>
                     )}
+                    <div style={{ marginTop: 12, textAlign: "right" }}><button onClick={() => setEditor({ plant: p, isNew: false })} style={small}>カードを編集</button></div>
                   </div>
                 )}
 
@@ -331,10 +374,12 @@ export default function PlantLog({ user, onLogout }) {
                   <div style={{ padding: "0 14px 16px", background: C.panel }}>
                     {/* 予定 */}
                     <div style={{ fontSize: 13, color: C.mute, margin: "10px 0 6px" }}>予定</div>
-                    <div style={{ fontSize: 13, background: "#EEF3E6", borderRadius: 8, padding: "7px 10px", marginBottom: 8, lineHeight: 1.6 }}>
-                      <div><span style={{ color: C.mute }}>土：</span>{p.soil}</div>
-                      <div><span style={{ color: C.mute }}>順番：</span>{p.repot}</div>
-                    </div>
+                    {(p.soil || p.repot) && (
+                      <div style={{ fontSize: 13, background: "#EEF3E6", borderRadius: 8, padding: "7px 10px", marginBottom: 8, lineHeight: 1.6 }}>
+                        {p.soil && <div><span style={{ color: C.mute }}>土：</span>{p.soil}</div>}
+                        {p.repot && <div><span style={{ color: C.mute }}>順番：</span>{p.repot}</div>}
+                      </div>
+                    )}
                     {tasks.length === 0 && <div style={{ fontSize: 13, color: C.mute }}>なし</div>}
                     {tasks.map((t) => (
                       <div key={t.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, padding: "5px 0" }}>
@@ -389,12 +434,22 @@ export default function PlantLog({ user, onLogout }) {
                         ))}
                       </div>
                     )}
+                    <div style={{ marginTop: 12, textAlign: "right" }}><button onClick={() => setEditor({ plant: p, isNew: false })} style={small}>カードを編集</button></div>
                   </div>
                 )}
               </div>
             );
           })}
+          {list.length === 0 && <div style={{ padding: 20, fontSize: 13, color: C.mute, textAlign: "center" }}>鉢がありません。右上の「＋ 鉢」で追加できます</div>}
         </div>
+        {archived.length > 0 && (
+          <div style={{ marginTop: 10, fontSize: 12, color: C.mute }}>
+            <button onClick={() => setShowArchived(!showArchived)} style={small}>{showArchived ? "外した鉢を隠す" : `外した鉢（${archived.length}）`}</button>
+            {showArchived && archived.map((p) => (
+              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: `1px dashed ${C.line}` }}><span>{p.name} {p.sub}</span><button onClick={() => archivePlant(p)} style={small}>一覧に戻す</button></div>
+            ))}
+          </div>
+        )}
 
         <div style={{ marginTop: 14, background: C.card, borderRadius: 12, border: `1px solid ${C.line}`, overflow: "hidden" }}>
           <button onClick={() => setIoOpen(!ioOpen)} style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "10px 12px", cursor: "pointer", color: C.ink, display: "flex", justifyContent: "space-between" }}>
@@ -402,7 +457,7 @@ export default function PlantLog({ user, onLogout }) {
           </button>
           {ioOpen && (
             <div style={{ padding: "0 12px 12px", fontSize: 13 }}>
-              <p style={{ margin: "0 0 8px", color: C.mute, lineHeight: 1.6 }}>記録は Supabase に保存されるので、普段は控えを取らなくて大丈夫です。旧アプリ（Claude 版）の書き出し文字列を貼るか、保存したファイルを選んで「読み込み」すると、写真ごと引き継げます。</p>
+              <p style={{ margin: "0 0 8px", color: C.mute, lineHeight: 1.6 }}>記録は Supabase に保存されるので、普段は控えを取らなくて大丈夫です。書き出した文字列やファイルを「読み込み」すると、鉢カード・記録・写真を引き継げます。Claude に書いてもらった鉢カードのファイルもここから取り込めます。</p>
               <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                 <button onClick={exportAll} disabled={busy} style={btn(C.ink, "#fff")}>書き出し</button>
                 <button onClick={() => importAll()} disabled={busy} style={btn("#fff", C.ink, `1px solid ${C.ink}`)}>{busy ? "読み込み中…" : "読み込み"}</button>
@@ -423,6 +478,7 @@ export default function PlantLog({ user, onLogout }) {
         </p>
       </div>
 
+      {editor && <CardEditor plant={editor.plant} isNew={editor.isNew} onSave={savePlant} onArchive={() => archivePlant(editor.plant)} onClose={() => setEditor(null)} />}
       {viewer && (
         <div onClick={() => setViewer(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.85)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 20 }}>
           <img src={srcOf(viewer.photo)} alt="" style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 10 }} />
