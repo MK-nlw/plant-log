@@ -37,6 +37,7 @@ export default function PlantLog({ user, onLogout }) {
   const [noteDraft, setNoteDraft] = useState("");
   const [evType, setEvType] = useState("植え替え");
   const [evNote, setEvNote] = useState("");
+  const [evDate, setEvDate] = useState(today()); // できごとの日付（既定＝今日、過去も可）
   const [taskDraft, setTaskDraft] = useState("");
   const [taskDue, setTaskDue] = useState("");
   const [viewer, setViewer] = useState(null);
@@ -103,7 +104,8 @@ export default function PlantLog({ user, onLogout }) {
   // ---- できごと・予定 ----
   const addEvent = async (id, type, note, date) => {
     const ev = P(id).events || [];
-    return upd(id, { events: [{ id: uid(), date: date || today(), type, note: (note || "").trim() }, ...ev] });
+    const list = [{ id: uid(), date: date || today(), type, note: (note || "").trim() }, ...ev].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    return upd(id, { events: list });
   };
   const delEvent = (id, eid) => upd(id, { events: (P(id).events || []).filter((e) => e.id !== eid) });
   const addTask = async (id) => {
@@ -353,9 +355,10 @@ export default function PlantLog({ user, onLogout }) {
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
                       {EVENT_TYPES.map((k) => <button key={k} onClick={() => setEvType(k)} style={{ padding: "5px 10px", borderRadius: 999, fontSize: 12, cursor: "pointer", border: `1px solid ${evType === k ? C.ink : C.line}`, background: evType === k ? C.ink : "#fff", color: evType === k ? "#fff" : C.ink }}>{k}</button>)}
                     </div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input value={evNote} onChange={(e) => setEvNote(e.target.value)} placeholder="内容（鉢サイズ・土など）" style={{ flex: 1, minWidth: 0, padding: "8px 10px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff" }} />
-                      <button onClick={async () => { const ok = await addEvent(p.id, evType, evNote); if (ok) { setEvNote(""); say("記録しました"); } }} style={{ ...btn(C.ok, "#fff"), flex: "none", padding: "8px 12px" }}>今日で記録</button>
+                    <input value={evNote} onChange={(e) => setEvNote(e.target.value)} placeholder="内容（鉢サイズ・土など）" style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff", marginBottom: 6 }} />
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="date" value={evDate} max={today()} onChange={(e) => setEvDate(e.target.value)} title="できごとの日付" style={{ flex: 1, padding: "8px 6px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff", appearance: "none", WebkitAppearance: "none", minWidth: 0 }} />
+                      <button onClick={async () => { const ok = await addEvent(p.id, evType, evNote, evDate); if (ok) { setEvNote(""); say(`${fmtY(evDate || today())}で記録しました`); } }} style={{ ...btn(C.ok, "#fff"), flex: "none", padding: "8px 14px" }}>{evDate && evDate !== today() ? "この日付で記録" : "今日で記録"}</button>
                     </div>
                     {events.length > 0 && (
                       <div style={{ marginTop: 10 }}>
