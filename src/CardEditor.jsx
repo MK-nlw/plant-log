@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PLACE_DESC as PLACE, CATEGORIES, MONTHS, SEASONS } from "./plants";
+import { PLACE_DESC as PLACE, CATEGORIES, MONTHS, SEASONS, MIST } from "./plants";
 
 const C = { bg: "#F4F6EF", ink: "#1E2A1C", mute: "#6E7A6B", line: "#D8DED0", ok: "#4E7A3A", late: "#B4513A", card: "#FFFFFF", panel: "#FAFBF7" };
 const field = { width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff" };
@@ -62,6 +62,18 @@ export default function CardEditor({ plant, isNew, onSave, onArchive, onClose })
         </div>
         <div style={label}>植え替えの順番</div>
         <input value={p.repot} onChange={(e) => set("repot", e.target.value)} placeholder="前日に水やり → 翌日植え替え" style={field} />
+
+        <div style={label}>水を少量にする条件</div>
+        <textarea value={p.light_rule || ""} onChange={(e) => set("light_rule", e.target.value)} rows={2} placeholder="夜15℃以下が続く・新芽が止まったら" style={{ ...field, resize: "vertical" }} />
+        <div style={label}>休眠の判断</div>
+        <textarea value={p.dormancy || ""} onChange={(e) => set("dormancy", e.target.value)} rows={2} placeholder="葉が黄変して落ち始めたら休眠入り" style={{ ...field, resize: "vertical" }} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ width: 120 }}>
+            <div style={label}>葉水</div>
+            <select value={p.mist_level || ""} onChange={(e) => set("mist_level", e.target.value)} style={field}><option value="">未設定</option>{Object.entries(MIST).map(([k, v]) => <option key={k} value={k}>{v.replace("葉水：", "")}</option>)}</select>
+          </div>
+          <div style={{ flex: 1 }}><div style={label}>葉水のやり方</div><input value={p.mist || ""} onChange={(e) => set("mist", e.target.value)} placeholder="朝に葉の表裏へ。付け根に水をためない" style={field} /></div>
+        </div>
 
         <div style={{ ...label, display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 18 }}>
           <span>水やりの目安日数（月ごと）</span>

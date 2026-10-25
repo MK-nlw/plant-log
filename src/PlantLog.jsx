@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { SEASONS, EVENT_TYPES, PLACE, PLACE_DESC, CATEGORIES, SEED_PLANTS, intervalFor, cardStatus, newPlantId, emptyPlant } from "./plants";
+import { SEASONS, EVENT_TYPES, PLACE, PLACE_DESC, MIST, CATEGORIES, SEED_PLANTS, intervalFor, cardStatus, newPlantId, emptyPlant } from "./plants";
 import { loadState, saveState, photoPath, uploadPhoto, removePhoto, photoUrl, dataUrlToBlob, loadPlants, upsertPlant, upsertPlants } from "./store";
 import CardEditor from "./CardEditor.jsx";
 
@@ -225,11 +225,15 @@ export default function PlantLog({ user, onLogout }) {
   // ---- 状態計算 ----
   const status = (plant) => {
     const logs = P(plant.id).logs || []; const iv = intervalFor(plant, month);
-    const days = logs.length ? daysBetween(logs[0].date, today()) : null;
+    // 水やり記録が無い鉢は「追加日」（購入のできごとがあればその日）を0日として数える
+    const bought = (P(plant.id).events || []).filter((e) => e.type === "購入").map((e) => e.date).sort().pop();
+    const base = logs.length ? logs[0].date : (bought || (plant.created_at || "").slice(0, 10) || null);
+    const days = base ? Math.max(0, daysBetween(base, today())) : null;
+    const fromAdd = !logs.length && days !== null;
     if (!iv) return { days, iv: null, level: "none", ratio: 0 }; // 目安未設定：判定しない
     if (days === null) return { days: null, iv, level: "none", ratio: 0 };
     const ratio = Math.min(days / iv.max, 1.15);
-    return { days, iv, ratio, level: days < iv.min ? "ok" : days <= iv.max ? "soon" : "late" };
+    return { days, iv, ratio, fromAdd, level: days < iv.min ? "ok" : days <= iv.max ? "soon" : "late" };
   };
   const color = (lv) => lv === "late" ? C.late : lv === "soon" ? C.soon : lv === "ok" ? C.ok : C.mute;
   const label = (lv, d) => lv === "none" ? (d === null ? "未記録" : `${d}日`) : lv === "late" ? `${d}日 · 遅れ気味` : lv === "soon" ? `${d}日 · そろそろ` : `${d}日 · まだ`;
@@ -319,9 +323,9 @@ export default function PlantLog({ user, onLogout }) {
               <div key={p.id} style={{ borderTop: i ? `1px solid ${C.line}` : "none" }}>
                 <button onClick={() => { setOpen(isOpen ? null : p.id); setNoteDraft(""); setEvNote(""); }} style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "14px 14px 12px", cursor: "pointer", color: C.ink, display: "block" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                    <div><span style={{ fontSize: 17, fontWeight: 600 }}>{p.name}</span>{p.sub && <span style={{ fontSize: 12, color: C.mute, marginLeft: 6 }}>{p.sub}</span>}{cardStatus(p) === "provisional" && <span title="分類の既定値で仮運用中" style={{ fontSize: 11, marginLeft: 6, padding: "1px 6px", borderRadius: 6, background: "#FFF6E3", border: "1px solid #EBD9A8", color: "#8A6A1E" }}>仮</span>}{cardStatus(p) === "none" && <span style={{ fontSize: 11, marginLeft: 6, padding: "1px 6px", borderRadius: 6, background: "#EEF0EA", color: C.mute }}>目安未設定</span>}</div>
+                    <div><span style={{ fontSize: 17, fontWeight: 600 }}>{p.name}</span>{p.sub && <span style={{ fontSize: 12, color: C.mute, marginLeft: 6 }}>{p.sub}</span>}{cardStatus(p) === "provisional" && <span title="分類の既定値で仮運用中" style={{ fontSize: 11, marginLeft: 6, padding: "1px 6px", borderRadius: 6, background: "#FFF6E3", border: "1px solid #EBD9A8", color: "#8A6A1E" }}>仮</span>}{tab === "water" && p.mist_level === "need" && <span title={p.mist || "葉水が必要"} style={{ fontSize: 11, marginLeft: 6, padding: "1px 6px", borderRadius: 6, background: "#E6F0F7", color: "#2F6A8F" }}>葉水</span>}{cardStatus(p) === "none" && <span style={{ fontSize: 11, marginLeft: 6, padding: "1px 6px", borderRadius: 6, background: "#EEF0EA", color: C.mute }}>目安未設定</span>}</div>
                     {tab === "water"
-                      ? <span style={{ fontSize: 13, fontWeight: 600, color: color(s.level), whiteSpace: "nowrap" }}>{label(s.level, s.days)}</span>
+                      ? <span style={{ fontSize: 13, fontWeight: 600, color: color(s.level), whiteSpace: "nowrap" }}>{s.fromAdd ? "追加から " : ""}{label(s.level, s.days)}</span>
                       : <span style={{ fontSize: 12, color: C.mute, whiteSpace: "nowrap" }}>{tasks.length ? `予定${tasks.length}` : ""}{ph.length ? ` 写真${ph.length}` : ""}</span>}
                   </div>
                   {tab === "water" ? (<>
@@ -347,6 +351,13 @@ export default function PlantLog({ user, onLogout }) {
                       <div style={{ fontSize: 13, background: "#EEF3E6", borderRadius: 8, padding: "7px 10px", marginBottom: 8, lineHeight: 1.6 }}>
                         {p.water_full && <div><span style={{ color: C.mute }}>たっぷり：</span>{p.water_full}（半分→1〜2分待つ→残り。底から出たら止める）</div>}
                         {p.water_light && <div><span style={{ color: C.mute }}>少量：</span>{p.water_light}（表面が湿る程度）</div>}
+                      </div>
+                    )}
+                    {(p.light_rule || p.dormancy || p.mist) && (
+                      <div style={{ fontSize: 13, background: "#FFF9EC", border: "1px solid #EFE2C2", borderRadius: 8, padding: "7px 10px", marginBottom: 8, lineHeight: 1.6 }}>
+                        {p.light_rule && <div><span style={{ color: C.mute }}>少量にする条件：</span>{p.light_rule}</div>}
+                        {p.dormancy && <div style={{ marginTop: 4 }}><span style={{ color: C.mute }}>休眠の判断：</span>{p.dormancy}</div>}
+                        {p.mist && <div style={{ marginTop: 4 }}><span style={{ color: C.mute }}>{MIST[p.mist_level] || "葉水"}：</span>{p.mist}</div>}
                       </div>
                     )}
                     <input value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="メモ（乾き具合・様子など、任意）" style={{ width: "100%", boxSizing: "border-box", padding: "9px 10px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff", marginBottom: 8 }} />

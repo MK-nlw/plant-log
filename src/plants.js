@@ -43,8 +43,9 @@ export const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
 export const newPlantId = () => "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 export function emptyPlant(id) {
-  return { id, name: "", sub: "", place: "B", category: "", soil: "", water_full: "", water_light: "", repot: "", intervals: [], season_notes: {}, sort_order: 0, archived: false };
+  return { id, name: "", sub: "", place: "B", category: "", soil: "", water_full: "", water_light: "", repot: "", intervals: [], season_notes: {}, sort_order: 0, archived: false, dormancy: "", light_rule: "", mist_level: "", mist: "" };
 }
+export const MIST = { need: "葉水：必要", some: "葉水：控えめ", no: "葉水：不要" };
 
 // ---- 季節ごとの置き場所ガイド（部屋の話。鉢ごとのメモは各カードの season_notes）----
 export const SEASONS = [

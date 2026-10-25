@@ -45,10 +45,10 @@ export async function dataUrlToBlob(dataUrl) {
 }
 
 // ---- 鉢カード（plants テーブル）----
-const PLANT_COLS = "id,name,sub,place,category,soil,water_full,water_light,repot,intervals,season_notes,sort_order,archived";
+const PLANT_COLS = "id,name,sub,place,category,soil,water_full,water_light,repot,intervals,season_notes,sort_order,archived,dormancy,light_rule,mist_level,mist";
 
 export async function loadPlants(userId) {
-  const { data, error } = await supabase.from("plants").select(PLANT_COLS).eq("user_id", userId).order("sort_order", { ascending: true });
+  const { data, error } = await supabase.from("plants").select(PLANT_COLS + ",created_at").eq("user_id", userId).order("sort_order", { ascending: true });
   if (error) throw error;
   return data || [];
 }
@@ -57,7 +57,7 @@ export async function loadPlants(userId) {
 export async function upsertPlant(userId, plant) {
   const row = { user_id: userId, updated_at: new Date().toISOString() };
   for (const k of PLANT_COLS.split(",")) if (plant[k] !== undefined) row[k] = plant[k];
-  const { data, error } = await supabase.from("plants").upsert(row, { onConflict: "user_id,id" }).select(PLANT_COLS).single();
+  const { data, error } = await supabase.from("plants").upsert(row, { onConflict: "user_id,id" }).select(PLANT_COLS + ",created_at").single();
   if (error) throw error;
   return data;
 }
@@ -66,7 +66,7 @@ export async function upsertPlant(userId, plant) {
 export async function upsertPlants(userId, plants) {
   const now = new Date().toISOString();
   const rows = plants.map((p) => { const r = { user_id: userId, updated_at: now }; for (const k of PLANT_COLS.split(",")) if (p[k] !== undefined) r[k] = p[k]; return r; });
-  const { data, error } = await supabase.from("plants").upsert(rows, { onConflict: "user_id,id" }).select(PLANT_COLS);
+  const { data, error } = await supabase.from("plants").upsert(rows, { onConflict: "user_id,id" }).select(PLANT_COLS + ",created_at");
   if (error) throw error;
   return data || [];
 }
