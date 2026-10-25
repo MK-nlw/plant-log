@@ -1,7 +1,9 @@
 // 鉢カードの定義・分類の既定値・置き場所ガイド
 // 鉢カード本体は Supabase の plants テーブルに入る。SEED_PLANTS は初回起動時の自動投入用（旧 plants.js から変換）。
 
-export const PLACE = { rack: "ラック下段", win: "窓台", shelf: "棚上", desk: "机" };
+// 置き場所は A／B の2択。A＝掃き出し窓前のラック（日中〜夕方まで日差し）、B＝窓台（朝日）
+export const PLACE = { A: "A", B: "B" };
+export const PLACE_DESC = { A: "A：掃き出し窓前のラック（日中〜夕方の日差し）", B: "B：窓台（朝日）" };
 export const EVENT_TYPES = ["植え替え", "鉢増し", "かき子", "剪定", "肥料", "購入", "その他"];
 
 // 分類と、カード（目安日数）が無い鉢に当てる既定値（「仮」表示）
@@ -41,7 +43,7 @@ export const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
 export const newPlantId = () => "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 export function emptyPlant(id) {
-  return { id, name: "", sub: "", place: "desk", category: "", soil: "", water_full: "", water_light: "", repot: "", intervals: [], season_notes: {}, sort_order: 0, archived: false };
+  return { id, name: "", sub: "", place: "B", category: "", soil: "", water_full: "", water_light: "", repot: "", intervals: [], season_notes: {}, sort_order: 0, archived: false };
 }
 
 // ---- 季節ごとの置き場所ガイド（部屋の話。鉢ごとのメモは各カードの season_notes）----
@@ -63,7 +65,7 @@ export const SEED_PLANTS = [
     "id": "alocasia",
     "name": "アロカシア",
     "sub": "グリーンベルベット",
-    "place": "win",
+    "place": "B",
     "category": "foliage",
     "soil": "観葉植物用培養土7＋軽石(パーライト)3。鉢底に軽石2cm",
     "water_full": "250〜350ml",
@@ -106,7 +108,7 @@ export const SEED_PLANTS = [
     "id": "alocasia_bv",
     "name": "アロカシア",
     "sub": "ブラックベルベット",
-    "place": "win",
+    "place": "B",
     "category": "foliage",
     "soil": "観葉用6＋軽石(パーライト)4。水はけ最優先。鉢底に軽石2cm",
     "water_full": "150〜200ml",
@@ -149,7 +151,7 @@ export const SEED_PLANTS = [
     "id": "monstera_tc",
     "name": "モンステラ",
     "sub": "タイコンステレーション（斑入り）",
-    "place": "desk",
+    "place": "B",
     "category": "foliage",
     "soil": "観葉用6＋軽石(パーライト)4。水はけ重視。鉢底に軽石2cm",
     "water_full": "300〜400ml",
@@ -199,7 +201,7 @@ export const SEED_PLANTS = [
     "id": "alocasia_am",
     "name": "アロカシア",
     "sub": "アマゾニカ（ポリー）",
-    "place": "win",
+    "place": "B",
     "category": "foliage",
     "soil": "観葉用6＋軽石(パーライト)4。鉢底に軽石2cm",
     "water_full": "150〜200ml",
@@ -242,7 +244,7 @@ export const SEED_PLANTS = [
     "id": "strepto",
     "name": "ストレプトカーパス",
     "sub": "プリティタートル",
-    "place": "desk",
+    "place": "B",
     "category": "foliage",
     "soil": "観葉用6＋パーライト(軽石)4。軽くて水はけのよい土。鉢底に軽石2cm",
     "water_full": "200〜300ml",
@@ -292,7 +294,7 @@ export const SEED_PLANTS = [
     "id": "schefflera",
     "name": "シェフレラ",
     "sub": "",
-    "place": "shelf",
+    "place": "B",
     "category": "foliage",
     "soil": "観葉植物用培養土。鉢底に軽石2cm",
     "water_full": "150〜250ml（すぐ抜けるなら腰水10〜15分）",
@@ -335,7 +337,7 @@ export const SEED_PLANTS = [
     "id": "aeonium",
     "name": "黒法師",
     "sub": "アエオニウム・冬型",
-    "place": "rack",
+    "place": "A",
     "category": "succulent",
     "soil": "多肉植物用培養土そのまま。鉢底に軽石2cm",
     "water_full": "250〜350ml",
@@ -387,7 +389,7 @@ export const SEED_PLANTS = [
     "id": "ficus",
     "name": "ガジュマル",
     "sub": "",
-    "place": "rack",
+    "place": "A",
     "category": "foliage",
     "soil": "観葉植物用培養土8＋軽石2。鉢底に軽石2cm",
     "water_full": "300〜400ml",
@@ -444,7 +446,7 @@ export const SEED_PLANTS = [
     "id": "senna",
     "name": "センナ",
     "sub": "メリディオナリス・夏型",
-    "place": "rack",
+    "place": "A",
     "category": "caudex",
     "soil": "多肉用7＋軽石小粒3（または赤玉小粒＋軽石）。鉢底に軽石2cm",
     "water_full": "100〜150ml",
@@ -496,7 +498,7 @@ export const SEED_PLANTS = [
     "id": "adenium",
     "name": "アデニウム",
     "sub": "アラビカム・夏型塊根",
-    "place": "desk",
+    "place": "A",
     "category": "caudex",
     "soil": "多肉用6＋軽石小粒4（または赤玉＋軽石）。鉢底に軽石2cm",
     "water_full": "150〜200ml",
@@ -547,7 +549,7 @@ export const SEED_PLANTS = [
     "id": "huernia",
     "name": "ユーフォルビア",
     "sub": "プフェルスドルフィー・春秋型",
-    "place": "shelf",
+    "place": "A",
     "category": "succulent",
     "soil": "多肉用7＋軽石小粒3。鉢底に軽石2cm",
     "water_full": "80〜120ml",
@@ -598,7 +600,7 @@ export const SEED_PLANTS = [
     "id": "gabizan",
     "name": "峨眉山",
     "sub": "ユーフォルビア・春秋型",
-    "place": "rack",
+    "place": "A",
     "category": "succulent",
     "soil": "多肉用7〜8＋軽石小粒2〜3。鉢底に軽石2cm",
     "water_full": "100〜150ml",
@@ -643,7 +645,7 @@ export const SEED_PLANTS = [
     "id": "echeveria",
     "name": "エケベリア",
     "sub": "春秋型",
-    "place": "rack",
+    "place": "A",
     "category": "succulent",
     "soil": "多肉植物用培養土そのまま",
     "water_full": "50〜70ml",
@@ -688,7 +690,7 @@ export const SEED_PLANTS = [
     "id": "gymno",
     "name": "ギムノカリキウム",
     "sub": "LB2178 錦",
-    "place": "shelf",
+    "place": "B",
     "category": "cactus",
     "soil": "サボテン用（粒状）そのまま",
     "water_full": "70〜100ml",

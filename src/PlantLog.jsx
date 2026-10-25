@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { SEASONS, EVENT_TYPES, PLACE, CATEGORIES, SEED_PLANTS, intervalFor, cardStatus, newPlantId, emptyPlant } from "./plants";
+import { SEASONS, EVENT_TYPES, PLACE, PLACE_DESC, CATEGORIES, SEED_PLANTS, intervalFor, cardStatus, newPlantId, emptyPlant } from "./plants";
 import { loadState, saveState, photoPath, uploadPhoto, removePhoto, photoUrl, dataUrlToBlob, loadPlants, upsertPlant, upsertPlants } from "./store";
 import CardEditor from "./CardEditor.jsx";
 
@@ -288,9 +288,9 @@ export default function PlantLog({ user, onLogout }) {
                   <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                     {SEASONS.map((x) => <button key={x.key} onClick={() => setGuideKey(x.key)} style={{ padding: "4px 9px", borderRadius: 999, fontSize: 12, cursor: "pointer", border: `1px solid ${g.key === x.key ? C.ink : C.line}`, background: g.key === x.key ? C.ink : "#fff", color: g.key === x.key ? "#fff" : C.ink }}>{x.name.split("（")[0]}</button>)}
                   </div>
-                  <div style={{ fontWeight: 600, marginTop: 4 }}>ラック下段・棚上（多肉・塊根組）</div>
+                  <div style={{ fontWeight: 600, marginTop: 4 }}>{PLACE_DESC.A}</div>
                   {g.A.map((t, i) => <div key={i}>・{t}</div>)}
-                  <div style={{ fontWeight: 600, marginTop: 8 }}>窓台・机（観葉組）</div>
+                  <div style={{ fontWeight: 600, marginTop: 8 }}>{PLACE_DESC.B}</div>
                   {g.B.map((t, i) => <div key={i}>・{t}</div>)}
                   <div style={{ fontWeight: 600, marginTop: 8 }}>鉢ごと</div>
                   {active.filter((p) => (p.season_notes || {})[g.key]).map((p) => <div key={p.id}><span style={{ color: C.mute }}>{p.name}：</span>{p.season_notes[g.key]}</div>)}
@@ -330,9 +330,9 @@ export default function PlantLog({ user, onLogout }) {
                       <div style={{ position: "absolute", left: `${(s.iv.min / (s.iv.max * 1.15)) * 100}%`, width: `${((s.iv.max - s.iv.min) / (s.iv.max * 1.15)) * 100}%`, top: 0, bottom: 0, background: "#D9E4CC", borderRadius: 3 }} />
                       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(s.ratio / 1.15, 1) * 100}%`, background: color(s.level), borderRadius: 3, transition: "width .3s" }} />
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mute, marginTop: 6 }}><span>{PLACE[p.place]}</span><span>目安 {s.iv.min}〜{s.iv.max}日{s.iv.provisional ? "（仮）" : ""}</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mute, marginTop: 6 }}><span>{PLACE[p.place] ? `置き場所 ${PLACE[p.place]}` : "置き場所 未設定"}</span><span>目安 {s.iv.min}〜{s.iv.max}日{s.iv.provisional ? "（仮）" : ""}</span></div>
                     </>) : (
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mute, marginTop: 8 }}><span>{PLACE[p.place]}</span><span>カード編集で分類か目安を設定すると判定します</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mute, marginTop: 8 }}><span>{PLACE[p.place] ? `置き場所 ${PLACE[p.place]}` : "置き場所 未設定"}</span><span>カード編集で分類か目安を設定すると判定します</span></div>
                     )}
                   </>) : (
                     <div style={{ fontSize: 12, color: C.mute, marginTop: 4 }}>{events[0] ? `最近：${fmtY(events[0].date)} ${events[0].type}` : "まだ記録がありません"}</div>

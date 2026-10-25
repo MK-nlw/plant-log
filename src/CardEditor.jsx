@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PLACE, CATEGORIES, MONTHS, SEASONS } from "./plants";
+import { PLACE_DESC as PLACE, CATEGORIES, MONTHS, SEASONS } from "./plants";
 
 const C = { bg: "#F4F6EF", ink: "#1E2A1C", mute: "#6E7A6B", line: "#D8DED0", ok: "#4E7A3A", late: "#B4513A", card: "#FFFFFF", panel: "#FAFBF7" };
 const field = { width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff" };
