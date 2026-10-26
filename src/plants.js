@@ -4,7 +4,7 @@
 // 置き場所は A／B の2択。A＝掃き出し窓前のラック（日中〜夕方まで日差し）、B＝窓台（朝日）
 export const PLACE = { A: "A", B: "B" };
 export const PLACE_DESC = { A: "A：掃き出し窓前のラック（日中〜夕方の日差し）", B: "B：窓台（朝日）" };
-export const EVENT_TYPES = ["植え替え", "鉢増し", "かき子", "剪定", "肥料", "購入", "その他"];
+export const EVENT_TYPES = ["様子", "植え替え", "鉢増し", "かき子", "剪定", "肥料", "購入", "その他"];
 
 // 分類と、カード（目安日数）が無い鉢に当てる既定値（「仮」表示）
 export const CATEGORIES = {

@@ -39,13 +39,15 @@ export default function PlantLog({ user, onLogout }) {
   const [tab, setTab] = useState("water"); // water | plan
   const [filter, setFilter] = useState("all");
   const [noteDraft, setNoteDraft] = useState("");
-  const [evType, setEvType] = useState("植え替え");
+  const [evType, setEvType] = useState("様子");
   const [evNote, setEvNote] = useState("");
+  const [evFile, setEvFile] = useState(null); // できごとに添える写真
+  const [evPreview, setEvPreview] = useState("");
+  const [viewerNote, setViewerNote] = useState("");
   const [evDate, setEvDate] = useState(today()); // できごとの日付（既定＝今日、過去も可）
   const [taskDraft, setTaskDraft] = useState("");
   const [taskDue, setTaskDue] = useState("");
   const [viewer, setViewer] = useState(null);
-  const [photoDate, setPhotoDate] = useState(today()); // 写真の日付（既定＝今日、過去の写真も入れられる）
   const [guideOpen, setGuideOpen] = useState(false);
   const [ioOpen, setIoOpen] = useState(false);
   const [ioText, setIoText] = useState("");
@@ -126,6 +128,37 @@ export default function PlantLog({ user, onLogout }) {
     return upd(id, { events: list });
   };
   const delEvent = (id, eid) => upd(id, { events: (P(id).events || []).filter((e) => e.id !== eid) });
+  const pickEvFile = (file) => { if (evPreview) URL.revokeObjectURL(evPreview); setEvFile(file || null); setEvPreview(file ? URL.createObjectURL(file) : ""); };
+  // できごと＋写真を1件の記録として保存（写真にはコメントと種類が付き、できごと一覧にもサムネが出る）
+  const saveRecord = async (id) => {
+    const note = evNote.trim(); const date = evDate || today();
+    if (!note && !evFile) { say("内容を書くか写真を添えてください"); return; }
+    setBusy(true);
+    try {
+      const eid = uid(); let pid = null; let nextPhotos;
+      if (evFile) {
+        const blob = await shrink(evFile); pid = uid();
+        const path = await uploadPhoto(photoPath(user.id, id, pid), blob);
+        const photo = { id: pid, date, path, note, type: evType, eventId: eid };
+        nextPhotos = { ...photos, [id]: [photo, ...(photos[id] || [])].sort((a, b) => (b.date || "").localeCompare(a.date || "")) };
+      }
+      const ev = { id: eid, date, type: evType, note, ...(pid ? { photoId: pid } : {}) };
+      const nextData = { ...data, [id]: { ...P(id), events: [ev, ...(P(id).events || [])].sort((a, b) => (b.date || "").localeCompare(a.date || "")) } };
+      const ok = await persist(nextData, nextPhotos);
+      if (ok) { setEvNote(""); pickEvFile(null); say(`${fmtY(date)}で記録しました${pid ? "（写真付き）" : ""}`); }
+    } catch (e) { console.error(e); say("記録できませんでした"); }
+    setBusy(false);
+  };
+  // 写真のコメントを直す（つながっているできごとの内容も合わせて直す）
+  const savePhotoNote = async (id, pid, note) => {
+    const target = (photos[id] || []).find((x) => x.id === pid); if (!target) return;
+    const nextPhotos = { ...photos, [id]: (photos[id] || []).map((x) => (x.id === pid ? { ...x, note } : x)) };
+    const evs = P(id).events || [];
+    const nextData = evs.some((e) => e.photoId === pid) ? { ...data, [id]: { ...P(id), events: evs.map((e) => (e.photoId === pid ? { ...e, note } : e)) } } : undefined;
+    const ok = await persist(nextData, nextPhotos);
+    if (ok) { setViewer((v) => (v ? { ...v, photo: { ...v.photo, note } } : v)); say("コメントを保存"); }
+  };
+  const openViewer = (plantId, photo) => { setViewer({ plant: plantId, photo }); setViewerNote(photo.note || ""); };
   const addTask = async (id) => {
     if (!taskDraft.trim()) return;
     const ok = await upd(id, { tasks: [...(P(id).tasks || []), { id: uid(), title: taskDraft.trim(), due: taskDue || "", done: false }] });
@@ -140,24 +173,13 @@ export default function PlantLog({ user, onLogout }) {
   };
   const delTask = (id, tid) => upd(id, { tasks: (P(id).tasks || []).filter((x) => x.id !== tid) });
 
-  // ---- 写真（Storage にアップロードし、メタ情報だけ state に持つ）----
-  const addPhoto = async (id, file) => {
-    if (!file) return; setBusy(true);
-    try {
-      const blob = await shrink(file);
-      const pid = uid();
-      const path = await uploadPhoto(photoPath(user.id, id, pid), blob);
-      const date = photoDate || today();
-      const list = [{ id: pid, date, path }, ...(photos[id] || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-      const ok = await persist(undefined, { ...photos, [id]: list });
-      if (ok) say(`${nameOf(id)}の写真を保存（${fmtY(date)}）`);
-    } catch (e) { console.error(e); say("写真を保存できませんでした"); }
-    setBusy(false);
-  };
+  // ---- 写真（Storage にアップロードし、メタ情報だけ state に持つ。追加は saveRecord から）----
   const delPhoto = async (id, pid) => {
     const target = (photos[id] || []).find((p) => p.id === pid);
     const list = (photos[id] || []).filter((p) => p.id !== pid);
-    const ok = await persist(undefined, { ...photos, [id]: list });
+    const evs = P(id).events || [];
+    const nextData = evs.some((e) => e.photoId === pid) ? { ...data, [id]: { ...P(id), events: evs.map((e) => (e.photoId === pid ? { ...e, photoId: undefined } : e)) } } : undefined;
+    const ok = await persist(nextData, { ...photos, [id]: list });
     if (ok) { setViewer(null); if (target?.path) { try { await removePhoto(target.path); } catch (e) { console.error(e); } } }
     else say("削除できませんでした");
   };
@@ -407,20 +429,26 @@ export default function PlantLog({ user, onLogout }) {
                     </div>
 
                     {/* できごと */}
-                    <div style={{ fontSize: 13, color: C.mute, margin: "18px 0 6px" }}>できごとを記録</div>
+                    <div style={{ fontSize: 13, color: C.mute, margin: "18px 0 6px" }}>記録する（写真にコメントを付けて残せます）</div>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
                       {EVENT_TYPES.map((k) => <button key={k} onClick={() => setEvType(k)} style={{ padding: "5px 10px", borderRadius: 999, fontSize: 12, cursor: "pointer", border: `1px solid ${evType === k ? C.ink : C.line}`, background: evType === k ? C.ink : "#fff", color: evType === k ? "#fff" : C.ink }}>{k}</button>)}
                     </div>
-                    <input value={evNote} onChange={(e) => setEvNote(e.target.value)} placeholder="内容（鉢サイズ・土など）" style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff", marginBottom: 6 }} />
+                    <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                      <button onClick={() => fileRef.current && fileRef.current.click()} style={{ flex: "none", width: 72, height: 72, borderRadius: 10, border: `1px dashed ${C.line}`, background: evPreview ? `center/cover url(${evPreview})` : "#fff", color: C.mute, fontSize: 11, cursor: "pointer", position: "relative" }}>{evPreview ? "" : "＋写真"}</button>
+                      <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { pickEvFile(e.target.files[0]); e.target.value = ""; }} />
+                      <textarea value={evNote} onChange={(e) => setEvNote(e.target.value)} rows={3} placeholder="コメント（葉が黄色くなった、新芽が出た、鉢サイズ など）" style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "8px 10px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff", resize: "vertical" }} />
+                    </div>
+                    {evPreview && <div style={{ textAlign: "right", marginBottom: 6 }}><button onClick={() => pickEvFile(null)} style={small}>写真を外す</button></div>}
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <input type="date" value={evDate} max={today()} onChange={(e) => setEvDate(e.target.value)} title="できごとの日付" style={{ flex: 1, padding: "8px 6px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff", appearance: "none", WebkitAppearance: "none", minWidth: 0 }} />
-                      <button onClick={async () => { const ok = await addEvent(p.id, evType, evNote, evDate); if (ok) { setEvNote(""); say(`${fmtY(evDate || today())}で記録しました`); } }} style={{ ...btn(C.ok, "#fff"), flex: "none", padding: "8px 14px" }}>{evDate && evDate !== today() ? "この日付で記録" : "今日で記録"}</button>
+                      <button disabled={busy} onClick={() => saveRecord(p.id)} style={{ ...btn(C.ok, "#fff"), flex: "none", padding: "8px 14px", opacity: busy ? .5 : 1 }}>{busy ? "保存中…" : evDate && evDate !== today() ? "この日付で記録" : "今日で記録"}</button>
                     </div>
                     {events.length > 0 && (
                       <div style={{ marginTop: 10 }}>
                         {events.slice(0, 12).map((e, j) => (
-                          <div key={e.id} style={{ display: "flex", gap: 10, fontSize: 13, padding: "5px 0", borderTop: j ? `1px dashed ${C.line}` : "none", alignItems: "center" }}>
-                            <span style={{ color: C.mute, minWidth: 66 }}>{fmtY(e.date)}</span><span style={{ fontWeight: 600, minWidth: 48 }}>{e.type}</span><span style={{ flex: 1 }}>{e.note}</span>
+                          <div key={e.id} style={{ display: "flex", gap: 10, fontSize: 13, padding: "6px 0", borderTop: j ? `1px dashed ${C.line}` : "none", alignItems: "center" }}>
+                            {(() => { const ph1 = e.photoId && ph.find((x) => x.id === e.photoId); return ph1 ? <button onClick={() => openViewer(p.id, ph1)} style={{ flex: "none", width: 48, height: 48, padding: 0, border: "none", borderRadius: 6, overflow: "hidden", cursor: "pointer", background: "#E9EDE2" }}><img src={srcOf(ph1)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /></button> : null; })()}
+                            <div style={{ flex: 1, minWidth: 0 }}><div><span style={{ color: C.mute, marginRight: 8 }}>{fmtY(e.date)}</span><span style={{ fontWeight: 600 }}>{e.type}</span></div>{e.note && <div style={{ lineHeight: 1.5 }}>{e.note}</div>}</div>
                             <button onClick={() => delEvent(p.id, e.id)} style={small}>削除</button>
                           </div>
                         ))}
@@ -430,17 +458,17 @@ export default function PlantLog({ user, onLogout }) {
                     {/* 写真 */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, margin: "18px 0 6px" }}>
                       <span style={{ fontSize: 13, color: C.mute, whiteSpace: "nowrap" }}>写真（{ph.length}）</span>
-                      <span style={{ flex: 1 }} />
-                      <input type="date" value={photoDate} max={today()} onChange={(e) => setPhotoDate(e.target.value)} title="写真の日付（撮った日）" style={{ padding: "6px 6px", fontSize: 16, border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff", appearance: "none", WebkitAppearance: "none", minWidth: 0, width: 140 }} />
-                      <button disabled={busy} onClick={() => fileRef.current && fileRef.current.click()} style={{ ...btn(C.ink, "#fff"), flex: "none", padding: "7px 12px", fontSize: 13, opacity: busy ? .5 : 1 }}>{busy ? "保存中…" : "写真を追加"}</button>
-                      <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { addPhoto(p.id, e.target.files[0]); e.target.value = ""; }} />
+                      <span style={{ fontSize: 12, color: C.mute }}>追加は上の「記録する」から</span>
                     </div>
-                    {ph.length === 0 ? <div style={{ fontSize: 13, color: C.mute }}>植え替え前後や数ヶ月ごとに撮っておくと成長が見比べられます。日付を変えれば過去に撮った写真も入れられます</div> : (
+                    {ph.length === 0 ? <div style={{ fontSize: 13, color: C.mute }}>「記録する」で写真を添えるとここに並びます。日付を変えれば過去に撮った写真も入れられます</div> : (
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
                         {ph.map((x) => (
-                          <button key={x.id} onClick={() => setViewer({ plant: p.id, photo: x })} style={{ position: "relative", padding: 0, border: "none", background: "#E9EDE2", cursor: "pointer", aspectRatio: "1", borderRadius: 8, overflow: "hidden" }}>
-                            <img src={srcOf(x)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                            <span style={{ position: "absolute", left: 4, bottom: 4, fontSize: 11, color: "#fff", background: "rgba(0,0,0,.55)", padding: "1px 6px", borderRadius: 6 }}>{fmtY(x.date)}</span>
+                          <button key={x.id} onClick={() => openViewer(p.id, x)} style={{ padding: 0, border: "none", background: "none", cursor: "pointer", textAlign: "left" }}>
+                            <div style={{ position: "relative", aspectRatio: "1", borderRadius: 8, overflow: "hidden", background: "#E9EDE2" }}>
+                              <img src={srcOf(x)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                              <span style={{ position: "absolute", left: 4, bottom: 4, fontSize: 11, color: "#fff", background: "rgba(0,0,0,.55)", padding: "1px 6px", borderRadius: 6 }}>{fmtY(x.date)}</span>
+                            </div>
+                            {x.note && <div style={{ fontSize: 11, color: C.ink, marginTop: 3, lineHeight: 1.4, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{x.note}</div>}
                           </button>
                         ))}
                       </div>
@@ -492,10 +520,17 @@ export default function PlantLog({ user, onLogout }) {
       {editor && <CardEditor plant={editor.plant} isNew={editor.isNew} onSave={savePlant} onArchive={() => archivePlant(editor.plant)} onClose={() => setEditor(null)} />}
       {viewer && (
         <div onClick={() => setViewer(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.85)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 20 }}>
-          <img src={srcOf(viewer.photo)} alt="" style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 10 }} />
-          <div style={{ color: "#fff", fontSize: 13, marginTop: 10, display: "flex", gap: 16, alignItems: "center" }}>
-            <span>{nameOf(viewer.plant)} · {fmtY(viewer.photo.date)}{viewer.photo.note ? ` · ${viewer.photo.note}` : ""}</span>
-            <button onClick={(e) => { e.stopPropagation(); delPhoto(viewer.plant, viewer.photo.id); }} style={{ ...small, color: "#F5B8A8", fontSize: 13 }}>この写真を削除</button>
+          <img src={srcOf(viewer.photo)} alt="" style={{ maxWidth: "100%", maxHeight: "62vh", borderRadius: 10 }} />
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, color: "#fff", fontSize: 13, marginTop: 10 }}>
+            <div style={{ marginBottom: 6 }}>{nameOf(viewer.plant)} · {fmtY(viewer.photo.date)}{viewer.photo.type ? ` · ${viewer.photo.type}` : ""}</div>
+            <textarea value={viewerNote} onChange={(e) => setViewerNote(e.target.value)} rows={3} placeholder="この写真へのコメント" style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 16, borderRadius: 8, border: "none", background: "rgba(255,255,255,.92)", color: C.ink, resize: "vertical" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+              <button onClick={() => delPhoto(viewer.plant, viewer.photo.id)} style={{ ...small, color: "#F5B8A8", fontSize: 13 }}>この写真を削除</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setViewer(null)} style={{ ...btn("transparent", "#fff", "1px solid rgba(255,255,255,.6)"), flex: "none", padding: "7px 14px" }}>閉じる</button>
+                <button disabled={viewerNote === (viewer.photo.note || "")} onClick={() => savePhotoNote(viewer.plant, viewer.photo.id, viewerNote.trim())} style={{ ...btn(C.ok, "#fff"), flex: "none", padding: "7px 14px", opacity: viewerNote === (viewer.photo.note || "") ? .5 : 1 }}>コメントを保存</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
